@@ -53,7 +53,8 @@
   .ptitle{font-size:22px; font-weight:800;}
   .psub{color:var(--muted); font-size:14px; margin-top:4px; margin-bottom:20px;}
   .board{display:grid; grid-template-columns:repeat(4,1fr); gap:5px;
-    background:#DED9EC; padding:5px; border-radius:14px; width:min(82vw,300px);}
+    background:#DED9EC; padding:5px; border-radius:14px; width:min(82vw,300px);
+    touch-action:none;}
   .cell{aspect-ratio:1; border-radius:9px; display:flex; align-items:center; justify-content:center;
     font-weight:800; font-size:min(8vw,30px); -webkit-user-select:none; user-select:none;}
   .cell.cov{background:var(--covered); box-shadow:inset 0 -5px 0 rgba(43,39,64,.16); cursor:pointer;}
@@ -62,7 +63,7 @@
   .cell svg{width:64%; height:64%;}
   /* tutorial example pair (closed view + revealed view) */
   .expair{display:flex; gap:18px; justify-content:center; align-items:flex-start; flex-wrap:wrap;}
-  .board.exb{width:132px; gap:4px; padding:4px; border-radius:10px;}
+  .board.exb{width:132px; gap:4px; padding:4px; border-radius:10px; touch-action:auto;}
   .exb .cell{font-size:15px; border-radius:7px;}
 
   .center{text-align:center;}
@@ -128,8 +129,13 @@ function materialize(e, t){
 // ---- session / playlist -----------------------------------------------------
 const rnd = n => Math.floor(Math.random()*n);
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=rnd(i+1); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+// Easiest-first ramp so novices warm up before hard boards (and don't quit).
+// Driven by the structural signals that track tester difficulty: a hard
+// deduction step (H) dominates, then mine count, while more footholds (F) make
+// a board easier. Boards of equal difficulty stay shuffled for variety.
+const diffKey = e => e.H*1000 + e.mineCount*10 - e.F*2;
 function segment(indices, crossFrac, extra){
-  const order = shuffle([...indices]);
+  const order = shuffle([...indices]).sort((a,b)=>diffKey(CATALOG[a])-diffKey(CATALOG[b]));
   const items = order.map(ci => ({ci, t: rnd(8), rep:false, ex:extra}));
   const dupN = Math.round(indices.length * crossFrac);
   for(const ci of shuffle([...order]).slice(0,dupN)){
@@ -252,6 +258,28 @@ async function onCell(d){
   busy=false;
   if(revealed.size >= board.safeCount) solved();
 }
+// Swipe-to-reveal: drag a finger/cursor across covered cells to open them,
+// matching the real game (tap + pan). Listeners live on `document` (registered
+// once) rather than the board, because every reveal re-renders the board and
+// would otherwise drop the gesture mid-swipe. elementFromPoint resolves the
+// cell under the pointer against the freshly rendered DOM.
+let pointerDown=false;
+const swipeable = () => phase==='playing' || phase==='tutPlay';
+function boardHit(x,y){
+  const el=document.elementFromPoint(x,y);
+  const c=el&&el.closest&&el.closest('.cov');
+  if(c) onCell(+c.dataset.i);
+}
+function initSwipe(){
+  document.addEventListener('pointerdown', e=>{
+    if(!swipeable() || !(e.target.closest&&e.target.closest('.board'))) return;
+    pointerDown=true; boardHit(e.clientX,e.clientY);
+  });
+  document.addEventListener('pointermove', e=>{ if(pointerDown && swipeable()) boardHit(e.clientX,e.clientY); });
+  const up=()=>{ pointerDown=false; };
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
+}
 function solved(){
   solvedTime = Date.now()-shownAt;
   if(phase==='tutPlay'){ phase='tutDone'; render(); return; }
@@ -279,7 +307,6 @@ const MINE_SVG = (col)=>`<svg viewBox="0 0 24 24"><g stroke="${col}" stroke-widt
   [0,1,2,3,4,5,6,7].map(k=>{const a=k*Math.PI/4;return `<line x1="12" y1="12" x2="${(12+Math.cos(a)*9).toFixed(1)}" y2="${(12+Math.sin(a)*9).toFixed(1)}"/>`}).join('')+
   `</g><circle cx="12" cy="12" r="5" fill="${col}"/></svg>`;
 const NUMCOL=[null,'var(--n1)','var(--n2)','var(--n3)','var(--n4)','var(--n5)','var(--n6)','var(--n7)','var(--n8)'];
-const OPTS=['Kolayca çözdüm','Biraz düşünmem gerekti','Oldukça zordu'];
 
 function boardHTML(){
   let h='<div class="board" id="board">';
@@ -450,8 +477,7 @@ function render(){
       <div style="color:var(--muted); font-size:14px; margin-top:4px">
         ${taps} dokunuş${mineHits>0?` · ${mineHits} mayın`:''}</div>
       <div class="fade ${choicesReady?'on':''}" style="margin-top:30px">
-        <div class="q">Ne kadar zordu?</div>
-        ${OPTS.map((o,i)=>`<button class="btn btn-choice" data-r="${i+1}">${o}</button>`).join('')}
+        <button class="btn btn-primary" id="cont">Devam</button>
       </div>
     </div>`;
   }
@@ -504,19 +530,17 @@ function wire(){
     $('exnext').onclick=()=>{ if(tutStep<EXAMPLES.length-1){ tutStep++; render(); } else beginTutorial(); };
   }
   else if(phase==='tutPlay'){
-    const b=$('board'); if(b) b.onclick=e=>{ const c=e.target.closest('.cov'); if(c) onCell(+c.dataset.i); };
     if($('retry')) $('retry').onclick=retryBoard;
   }
   else if(phase==='tutDone'){
     $('begin').onclick=()=>{ SESSION=freshSession(pendingName); save(); nextPhase(); };
   }
   else if(phase==='playing'){
-    const b=$('board'); if(b) b.onclick=e=>{ const c=e.target.closest('.cov'); if(c) onCell(+c.dataset.i); };
     if($('retry')) $('retry').onclick=retryBoard;
     $('giveup').onclick=giveUp;
   }
   else if(phase==='solved'){
-    document.querySelectorAll('[data-r]').forEach(btn=> btn.onclick=()=>commit(+btn.dataset.r));
+    if($('cont')) $('cont').onclick=()=>commit(-1);  // -1 = no subjective rating collected
   }
   else if(phase==='coreDone'){
     $('more').onclick=()=>unlockExtras(true);
@@ -537,6 +561,7 @@ function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg
 
 // ---- boot -------------------------------------------------------------------
 SESSION = load();  // load any prior session so leftover unsynced rows can retry
+initSwipe();       // swipe-to-reveal listeners (document-level, once)
 render();          // intro re-reads storage itself to decide resume vs. fresh
 flush();
 </script>
