@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Defuse · Zorluk Testi</title>
+<style>
+  :root{
+    --bg:#15121E; --panel:#211C30; --panel2:#2A2440; --text:#ECE8F4;
+    --muted:#9C95B6; --amber:#F4B43C; --hair:#352E4C; --good:#34D399;
+    --covered:#CFC9E0; --opened:#F1EFF7; --mine:#E5564A; --ink:#2B2740;
+    --n1:#2A6DF4; --n2:#2E9E54; --n3:#E53935; --n4:#5B2EA6;
+    --n5:#9A3B2E; --n6:#1597A8; --n7:#45415C; --n8:#8A8699;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Nunito',system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex; justify-content:center;
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{width:100%; max-width:460px; padding:22px; min-height:100%;
+    display:flex; flex-direction:column; justify-content:center;}
+  h1{font-size:30px; font-weight:800; line-height:1.05; margin:.2em 0 .4em;}
+  p.lede{color:var(--muted); font-size:15px; line-height:1.45; margin:0 0 22px;}
+  .eyebrow{font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--amber); font-weight:700; display:flex; align-items:center; gap:10px;}
+  .eyebrow::before{content:""; width:30px; height:10px; border-radius:2px;
+    background:repeating-linear-gradient(45deg,var(--amber) 0 5px,transparent 5px 10px);}
+
+  input[type=text]{width:100%; padding:14px; border-radius:12px; border:1px solid var(--hair);
+    background:var(--panel); color:var(--text); font-size:15px; font-family:inherit;}
+  input::placeholder{color:var(--muted);}
+
+  .btn{display:block; width:100%; border:0; border-radius:13px; padding:15px;
+    font-size:16px; font-weight:700; font-family:inherit; cursor:pointer; text-align:center;}
+  .btn-primary{background:var(--amber); color:#1A1408;}
+  .btn-choice{background:var(--panel); color:var(--text); margin-top:10px;}
+  .btn-choice:active{background:var(--panel2);}
+  .link{background:none; border:0; color:var(--muted); font-family:inherit; font-size:14px;
+    cursor:pointer; padding:12px; width:100%; margin-top:6px;}
+
+  /* progress */
+  .prog-top{display:flex; justify-content:space-between; font-size:12.5px; font-weight:700; margin-bottom:8px;}
+  .prog-top .left{color:var(--muted);} .prog-top .right{color:var(--amber);}
+  .prog-bar{height:7px; border-radius:4px; background:var(--panel); overflow:hidden;}
+  .prog-fill{height:100%; background:var(--amber); transition:width .2s ease;}
+
+  /* board */
+  .play{flex:1; display:flex; flex-direction:column;}
+  .play-mid{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;}
+  .ptitle{font-size:22px; font-weight:800;}
+  .psub{color:var(--muted); font-size:14px; margin-top:4px; margin-bottom:20px;}
+  .board{display:grid; grid-template-columns:repeat(4,1fr); gap:5px;
+    background:#DED9EC; padding:5px; border-radius:14px; width:min(82vw,300px);}
+  .cell{aspect-ratio:1; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:min(8vw,30px); -webkit-user-select:none; user-select:none;}
+  .cell.cov{background:var(--covered); box-shadow:inset 0 -5px 0 rgba(43,39,64,.16); cursor:pointer;}
+  .cell.open{background:var(--opened);}
+  .cell.mine{background:var(--mine);}
+  .cell svg{width:64%; height:64%;}
+
+  .center{text-align:center;}
+  .time{font-size:44px; font-weight:800; color:var(--amber);}
+  .bigicon{font-size:50px; line-height:1;}
+  .q{font-size:20px; font-weight:800; text-align:center; margin:0 0 16px;}
+  .fade{opacity:0; transition:opacity .24s ease; pointer-events:none;}
+  .fade.on{opacity:1; pointer-events:auto;}
+  .results-box{max-height:220px; overflow:auto; background:var(--panel); border:1px solid var(--hair);
+    border-radius:12px; padding:12px; font-family:ui-monospace,monospace; font-size:11px;
+    color:var(--muted); white-space:pre; margin-top:14px;}
+  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%);
+    background:var(--panel2); color:var(--text); padding:11px 18px; border-radius:10px;
+    font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none;}
+  .toast.on{opacity:1;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+// ---- config (publishable anon key — RLS limits it to INSERT only) -----------
+const SUPABASE_URL = 'https://mppsuzrsdyecfbfudajp.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_yKP_3cRMhAwWxw8YAgvnjA_93YY8qj_';
+const APP_VERSION = 'study-web/v2';
+const LS_KEY = 'defuseStudy.v2';
+const SIDE = 4, N = 16;
+
+// ---- catalog (106 fair layouts; core = shipped by the live game) ------------
+const CATALOG = [{"mines":[0,1,7],"numbers":[0,0,2,1,2,2,2,0,0,0,1,1,0,0,0,0],"opened":[4,5,6,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":3,"mineCount":3,"toClear":2,"core":true,"coreTier":"easy"},{"mines":[0,1,15],"numbers":[0,0,1,0,2,2,1,0,0,0,1,1,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":3,"mineCount":3,"toClear":4,"core":true,"coreTier":"easy"},{"mines":[0,1,6],"numbers":[0,0,2,1,2,3,0,1,0,1,1,1,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":5,"mineCount":3,"toClear":3,"core":true,"coreTier":"easy"},{"mines":[0,1,11],"numbers":[0,0,1,0,2,2,2,1,0,0,1,0,0,0,1,1],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":5,"mineCount":3,"toClear":4,"core":true,"coreTier":"easy"},{"mines":[1,5,9],"numbers":[2,0,2,0,3,0,3,0,2,0,2,0,1,1,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":0,"H":0,"F":5,"mineCount":3,"toClear":5,"core":true,"coreTier":"easy"},{"mines":[1,5,13],"numbers":[2,0,2,0,2,0,2,0,2,2,2,0,1,0,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":0,"H":0,"F":5,"mineCount":3,"toClear":5,"core":true,"coreTier":"easy"},{"mines":[0,1,7,15],"numbers":[0,0,2,1,2,2,2,0,0,0,2,2,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":3,"core":true,"coreTier":"medium"},{"mines":[0,1,3,11],"numbers":[0,0,2,0,2,2,3,2,0,0,1,0,0,0,1,1],"opened":[4,5,6,8,9,10,12,13,14],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":3,"core":true,"coreTier":"medium"},{"mines":[0,1,3,15],"numbers":[0,0,2,0,2,2,2,1,0,0,1,1,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":3,"core":true,"coreTier":"medium"},{"mines":[0,1,5,8],"numbers":[0,0,2,0,4,0,2,0,0,2,1,0,1,1,0,0],"opened":[2,3,6,7,9,10,11,13,14,15],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":2,"core":true,"coreTier":"medium"},{"mines":[0,1,7,11],"numbers":[0,0,2,1,2,2,3,0,0,0,2,0,0,0,1,1],"opened":[4,5,6,8,9,10,12,13,14],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":3,"core":true,"coreTier":"medium"},{"mines":[0,1,2,8],"numbers":[0,0,0,1,3,4,2,1,0,1,0,0,1,1,0,0],"opened":[5,6,7,9,10,11,13,14,15],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":3,"core":true,"coreTier":"hard"},{"mines":[0,1,3,8],"numbers":[0,0,2,0,3,3,2,1,0,1,0,0,1,1,0,0],"opened":[5,6,7,9,10,11,13,14,15],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":3,"core":true,"coreTier":"hard"},{"mines":[0,1,4,6],"numbers":[0,0,2,1,0,4,0,1,1,2,1,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":4,"core":true,"coreTier":"hard"},{"mines":[0,1,5,6],"numbers":[0,0,3,1,3,0,0,1,1,2,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":4,"core":true,"coreTier":"hard"},{"mines":[0,1,5,7],"numbers":[0,0,3,1,3,0,3,0,1,1,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":4,"core":true,"coreTier":"hard"},{"mines":[0,1,2,3,8],"numbers":[0,0,0,0,3,4,3,2,0,1,0,0,1,1,0,0],"opened":[5,6,7,9,10,11,13,14,15],"tier":1,"H":1,"F":2,"mineCount":5,"toClear":2,"core":true,"coreTier":"hard5"},{"mines":[1,2,3,4,11],"numbers":[2,0,0,0,0,3,4,3,1,1,1,0,0,0,1,1],"opened":[8,9,10,12,13,14],"tier":2,"H":1,"F":0,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,8,12,14],"numbers":[0,0,1,0,3,3,1,0,0,3,1,1,0,3,0,1],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,4,6],"numbers":[0,0,0,2,0,5,0,2,1,2,1,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":5,"toClear":3,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,4,7],"numbers":[0,0,0,2,0,4,3,0,1,1,1,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":5,"toClear":3,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,4,15],"numbers":[0,0,0,1,0,4,2,1,1,1,1,1,0,0,1,0],"opened":[8,9,10,12,13,14],"tier":2,"H":1,"F":0,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,3,6,14],"numbers":[0,0,3,0,2,3,0,2,0,2,2,2,0,1,0,1],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,10,15],"numbers":[0,0,0,1,2,4,3,2,0,1,0,2,0,1,2,0],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,6,14,15],"numbers":[0,0,2,1,2,3,0,1,0,2,3,3,0,1,0,0],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,3,9],"numbers":[0,0,0,0,3,4,4,2,1,0,1,0,1,1,1,0],"opened":[6,7,10,11,14,15],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,7,10],"numbers":[0,0,0,2,2,4,4,0,0,1,0,2,0,1,1,1],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,2,7,15],"numbers":[0,0,0,2,2,3,3,0,0,0,2,2,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":2,"core":true,"coreTier":"hard5"},{"mines":[0,1,6,11,14],"numbers":[0,0,2,1,2,3,0,2,0,2,3,0,0,1,0,2],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,1,5,9,15],"numbers":[0,0,2,0,4,0,3,0,2,0,3,1,1,1,2,0],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":1,"mineCount":5,"toClear":5,"core":true,"coreTier":"hard5"},{"mines":[0,7],"numbers":[0,1,1,1,1,1,1,0,0,0,1,1,0,0,0,0],"opened":[4,5,6,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":3,"mineCount":2,"toClear":3,"core":false,"coreTier":null},{"mines":[1,5],"numbers":[2,0,2,0,2,0,2,0,1,1,1,0,0,0,0,0],"opened":[2,3,6,7,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":4,"mineCount":2,"toClear":2,"core":false,"coreTier":null},{"mines":[0,5],"numbers":[0,2,1,0,2,0,1,0,1,1,1,0,0,0,0,0],"opened":[2,3,6,7,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":4,"mineCount":2,"toClear":2,"core":false,"coreTier":null},{"mines":[0,6],"numbers":[0,2,1,1,1,2,0,1,0,1,1,1,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":5,"mineCount":2,"toClear":4,"core":false,"coreTier":null},{"mines":[1,6],"numbers":[1,0,2,1,1,2,0,1,0,1,1,1,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":5,"mineCount":2,"toClear":4,"core":false,"coreTier":null},{"mines":[1,2],"numbers":[1,0,0,1,1,2,2,1,0,0,0,0,0,0,0,0],"opened":[4,5,6,7,8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":2,"core":false,"coreTier":null},{"mines":[0,2],"numbers":[0,2,0,1,1,2,1,1,0,0,0,0,0,0,0,0],"opened":[4,5,6,7,8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":2,"core":false,"coreTier":null},{"mines":[1,9],"numbers":[1,0,1,0,2,2,2,0,1,0,1,0,1,1,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":6,"core":false,"coreTier":null},{"mines":[1,13],"numbers":[1,0,1,0,1,1,1,0,1,1,1,0,1,0,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":6,"core":false,"coreTier":null},{"mines":[1,14],"numbers":[1,0,1,0,1,1,1,0,0,1,1,1,0,1,0,1],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":8,"core":false,"coreTier":null},{"mines":[1,15],"numbers":[1,0,1,0,1,1,1,0,0,0,1,1,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":5,"core":false,"coreTier":null},{"mines":[5,6],"numbers":[1,2,2,1,1,0,0,1,1,2,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":6,"core":false,"coreTier":null},{"mines":[0,3],"numbers":[0,1,1,0,1,1,1,1,0,0,0,0,0,0,0,0],"opened":[4,5,6,7,8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":2,"toClear":2,"core":false,"coreTier":null},{"mines":[0,4,11],"numbers":[0,2,0,0,0,2,1,1,1,1,1,0,0,0,1,1],"opened":[1,2,3,5,6,7],"tier":0,"H":0,"F":5,"mineCount":3,"toClear":7,"core":false,"coreTier":null},{"mines":[0,10,11],"numbers":[0,1,0,0,1,2,2,2,0,1,0,0,0,1,2,2],"opened":[1,2,3,5,6,7],"tier":0,"H":0,"F":5,"mineCount":3,"toClear":7,"core":false,"coreTier":null},{"mines":[0,2,5],"numbers":[0,3,0,1,2,0,2,1,1,1,1,0,0,0,0,0],"opened":[6,7,8,9,10,11,12,13,14,15],"tier":1,"H":1,"F":2,"mineCount":3,"toClear":3,"core":false,"coreTier":null},{"mines":[0,3,5],"numbers":[0,2,2,0,2,0,2,1,1,1,1,0,0,0,0,0],"opened":[6,7,8,9,10,11,12,13,14,15],"tier":1,"H":1,"F":2,"mineCount":3,"toClear":3,"core":false,"coreTier":null},{"mines":[1,5,6],"numbers":[2,0,3,1,2,0,0,1,1,2,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[1,12,14],"numbers":[1,0,1,0,1,1,1,0,1,2,1,1,0,2,0,1],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":7,"core":false,"coreTier":null},{"mines":[1,12,15],"numbers":[1,0,1,0,1,1,1,0,1,1,1,1,0,1,1,0],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":7,"core":false,"coreTier":null},{"mines":[0,5,6],"numbers":[0,3,2,1,2,0,0,1,1,2,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[0,5,7],"numbers":[0,2,2,1,2,0,2,0,1,1,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,13],"numbers":[0,0,1,0,2,2,1,0,1,1,1,0,1,0,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[0,7,15],"numbers":[0,1,1,1,1,1,1,0,0,0,2,2,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":4,"core":false,"coreTier":null},{"mines":[1,4,6],"numbers":[2,0,2,1,0,3,0,1,1,2,1,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[1,4,15],"numbers":[2,0,1,0,0,2,1,0,1,1,1,1,0,0,1,0],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":7,"core":false,"coreTier":null},{"mines":[0,1,9],"numbers":[0,0,1,0,3,3,2,0,1,0,1,0,1,1,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":2,"H":1,"F":0,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[0,2,7],"numbers":[0,2,0,2,1,2,2,0,0,0,1,1,0,0,0,0],"opened":[4,5,6,8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":1,"mineCount":3,"toClear":2,"core":false,"coreTier":null},{"mines":[0,6,15],"numbers":[0,2,1,1,1,2,0,1,0,1,2,2,0,0,1,0],"opened":[4,5,8,9,10,12,13,14],"tier":2,"H":1,"F":1,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[1,6,15],"numbers":[1,0,2,1,1,2,0,1,0,1,2,2,0,0,1,0],"opened":[4,5,8,9,10,12,13,14],"tier":2,"H":1,"F":1,"mineCount":3,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,8],"numbers":[0,0,1,0,3,3,1,0,0,1,0,0,1,1,0,0],"opened":[2,3,5,6,7,9,10,11,13,14,15],"tier":2,"H":1,"F":1,"mineCount":3,"toClear":2,"core":false,"coreTier":null},{"mines":[0,6,7],"numbers":[0,2,2,2,1,2,0,0,0,1,2,2,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":2,"H":1,"F":1,"mineCount":3,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,2,15],"numbers":[0,0,0,1,2,3,2,1,0,0,1,1,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":3,"mineCount":4,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,11,15],"numbers":[0,0,1,0,2,2,2,1,0,0,2,0,0,0,2,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":4,"mineCount":4,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,2,6],"numbers":[0,0,0,2,2,4,0,2,0,1,1,1,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":4,"mineCount":4,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,6,7],"numbers":[0,0,3,2,2,3,0,0,0,1,2,2,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":4,"mineCount":4,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,5,15],"numbers":[0,0,2,0,3,0,2,0,1,1,2,1,0,0,1,0],"opened":[2,3,6,7,10,11],"tier":0,"H":0,"F":5,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,14,15],"numbers":[0,0,1,0,2,2,1,0,0,1,2,2,0,1,0,0],"opened":[2,3,6,7,10,11],"tier":0,"H":0,"F":5,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,5,13],"numbers":[0,0,2,0,3,0,2,0,2,2,2,0,1,0,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":0,"H":0,"F":5,"mineCount":4,"toClear":4,"core":false,"coreTier":null},{"mines":[0,1,3,14],"numbers":[0,0,2,0,2,2,2,1,0,1,1,1,0,1,0,1],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":5,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,3,6],"numbers":[0,0,3,0,2,3,0,2,0,1,1,1,0,0,0,0],"opened":[4,5,8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":5,"mineCount":4,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,5,9],"numbers":[0,0,2,0,4,0,3,0,2,0,2,0,1,1,1,0],"opened":[2,3,6,7,10,11,14,15],"tier":0,"H":0,"F":5,"mineCount":4,"toClear":4,"core":false,"coreTier":null},{"mines":[0,1,6,15],"numbers":[0,0,2,1,2,3,0,1,0,1,2,2,0,0,1,0],"opened":[4,5,8,9,10,12,13,14],"tier":0,"H":0,"F":6,"mineCount":4,"toClear":4,"core":false,"coreTier":null},{"mines":[0,1,6,11],"numbers":[0,0,2,1,2,3,0,2,0,1,2,0,0,0,1,1],"opened":[4,5,8,9,10,12,13,14],"tier":0,"H":0,"F":6,"mineCount":4,"toClear":4,"core":false,"coreTier":null},{"mines":[0,1,11,14],"numbers":[0,0,1,0,2,2,2,1,0,1,2,0,0,1,0,2],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":6,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,10,14],"numbers":[0,0,1,0,2,3,2,1,0,2,0,2,0,2,0,2],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":6,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[1,5,10,11],"numbers":[2,0,2,0,2,0,4,2,1,2,0,0,0,1,2,2],"opened":[2,3,6,7],"tier":0,"H":0,"F":6,"mineCount":4,"toClear":8,"core":false,"coreTier":null},{"mines":[0,2,10,14],"numbers":[0,2,0,1,1,3,2,2,0,2,0,2,0,2,0,2],"opened":[4,5,8,9,12,13],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,6,10,14],"numbers":[0,2,1,1,1,3,0,2,0,3,0,3,0,2,0,2],"opened":[4,5,8,9,12,13],"tier":1,"H":1,"F":2,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[1,8,12,14],"numbers":[1,0,1,0,2,2,1,0,0,3,1,1,0,3,0,1],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,4,15],"numbers":[0,0,1,0,0,3,1,0,1,1,1,1,0,0,1,0],"opened":[2,3,6,7,10,11],"tier":2,"H":1,"F":0,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,6,14],"numbers":[0,0,2,1,2,3,0,1,0,2,2,2,0,1,0,1],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,2,10],"numbers":[0,0,0,1,2,4,3,2,0,1,0,1,0,1,1,1],"opened":[4,5,8,9,12,13],"tier":2,"H":1,"F":1,"mineCount":4,"toClear":6,"core":false,"coreTier":null},{"mines":[0,1,2,4,8],"numbers":[0,0,0,1,0,5,2,1,0,2,0,0,1,1,0,0],"opened":[5,6,7,9,10,11,13,14,15],"tier":0,"H":0,"F":3,"mineCount":5,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,2,8,12],"numbers":[0,0,0,1,3,4,2,1,0,2,0,0,0,2,0,0],"opened":[5,6,7,9,10,11,13,14,15],"tier":0,"H":0,"F":4,"mineCount":5,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,2,11,15],"numbers":[0,0,0,1,2,3,3,2,0,0,2,0,0,0,2,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":4,"mineCount":5,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,4,5,6],"numbers":[0,0,3,1,0,0,0,1,2,3,2,1,0,0,0,0],"opened":[8,9,10,11,12,13,14,15],"tier":0,"H":0,"F":4,"mineCount":5,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,2,10,14],"numbers":[0,0,0,1,2,4,3,2,0,2,0,2,0,2,0,2],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":5,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,2,6,10],"numbers":[0,0,0,2,2,5,0,3,0,2,0,2,0,1,1,1],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":5,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,3,7,15],"numbers":[0,0,3,0,2,2,3,0,0,0,2,2,0,0,1,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":5,"mineCount":5,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,4,11,15],"numbers":[0,0,1,0,0,3,2,1,1,1,2,0,0,0,2,0],"opened":[8,9,10,12,13,14],"tier":0,"H":0,"F":5,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,3,11,15],"numbers":[0,0,2,0,2,2,3,2,0,0,2,0,0,0,2,0],"opened":[4,5,6,8,9,10,12,13,14],"tier":0,"H":0,"F":5,"mineCount":5,"toClear":2,"core":false,"coreTier":null},{"mines":[0,1,5,14,15],"numbers":[0,0,2,0,3,0,2,0,1,2,3,2,0,1,0,0],"opened":[2,3,6,7,10,11],"tier":0,"H":0,"F":5,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,3,7,14],"numbers":[0,0,3,0,2,2,3,0,0,1,2,2,0,1,0,1],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":6,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,5,10,11],"numbers":[0,0,2,0,3,0,4,2,1,2,0,0,0,1,2,2],"opened":[2,3,6,7],"tier":0,"H":0,"F":6,"mineCount":5,"toClear":7,"core":false,"coreTier":null},{"mines":[0,1,6,11,15],"numbers":[0,0,2,1,2,3,0,2,0,1,3,0,0,0,2,0],"opened":[4,5,8,9,10,12,13,14],"tier":0,"H":0,"F":6,"mineCount":5,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,6,10,14],"numbers":[0,0,2,1,2,4,0,2,0,3,0,3,0,2,0,2],"opened":[4,5,8,9,12,13],"tier":0,"H":0,"F":7,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,2,6,15],"numbers":[0,0,0,2,2,4,0,2,0,1,2,2,0,0,1,0],"opened":[4,5,8,9,10,12,13,14],"tier":1,"H":1,"F":2,"mineCount":5,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,4,5,15],"numbers":[0,0,2,0,0,0,2,0,2,2,2,1,0,0,1,0],"opened":[2,3,6,7,10,11],"tier":1,"H":1,"F":2,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,5,13,15],"numbers":[0,0,2,0,3,0,2,0,2,2,3,1,1,0,2,0],"opened":[2,3,6,7,10,11],"tier":1,"H":1,"F":2,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,6,7,8],"numbers":[0,0,3,2,3,4,0,0,0,2,2,2,1,1,0,0],"opened":[9,10,11,13,14,15],"tier":1,"H":1,"F":2,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,3,6,15],"numbers":[0,0,3,0,2,3,0,2,0,1,2,2,0,0,1,0],"opened":[4,5,8,9,10,12,13,14],"tier":1,"H":1,"F":3,"mineCount":5,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,3,11,14],"numbers":[0,0,2,0,2,2,3,2,0,1,2,0,0,1,0,2],"opened":[4,5,8,9,12,13],"tier":1,"H":1,"F":3,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,7,14,15],"numbers":[0,0,2,1,2,2,2,0,0,1,3,3,0,1,0,0],"opened":[4,5,8,9,12,13],"tier":1,"H":1,"F":3,"mineCount":5,"toClear":5,"core":false,"coreTier":null},{"mines":[0,1,3,6,11],"numbers":[0,0,3,0,2,3,0,3,0,1,2,0,0,0,1,1],"opened":[4,5,8,9,10,12,13,14],"tier":1,"H":1,"F":3,"mineCount":5,"toClear":3,"core":false,"coreTier":null},{"mines":[0,1,3,10,14],"numbers":[0,0,2,0,2,3,3,2,0,2,0,2,0,2,0,2],"opened":[4,5,8,9,12,13],"tier":1,"H":1,"F":4,"mineCount":5,"toClear":5,"core":false,"coreTier":null}];
+
+// ---- symmetry transforms (D4) -----------------------------------------------
+function tIndex(i, t){
+  const r = (i / SIDE) | 0, c = i % SIDE, s = SIDE - 1; let nr, nc;
+  switch(t){
+    case 0: nr=r; nc=c; break;            case 1: nr=c; nc=s-r; break;
+    case 2: nr=s-r; nc=s-c; break;        case 3: nr=s-c; nc=r; break;
+    case 4: nr=r; nc=s-c; break;          case 5: nr=s-r; nc=c; break;
+    case 6: nr=c; nc=r; break;            default: nr=s-c; nc=s-r;
+  }
+  return nr*SIDE + nc;
+}
+function untIndex(d, t){ for(let j=0;j<N;j++) if(tIndex(j,t)===d) return j; return d; }
+function neighbours(i){
+  const x=i%SIDE, y=(i/SIDE)|0, out=[];
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    if(!dx&&!dy)continue; const nx=x+dx, ny=y+dy;
+    if(nx<0||ny<0||nx>=SIDE||ny>=SIDE)continue; out.push(ny*SIDE+nx);
+  }
+  return out;
+}
+function materialize(e, t){
+  const numbers = new Array(N).fill(0);
+  for(let i=0;i<N;i++) numbers[tIndex(i,t)] = e.numbers[i];
+  return {
+    mines: new Set(e.mines.map(i=>tIndex(i,t))),
+    opened: new Set(e.opened.map(i=>tIndex(i,t))),
+    numbers, mineCount: e.mineCount, safeCount: N - e.mineCount,
+  };
+}
+
+// ---- session / playlist -----------------------------------------------------
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=rnd(i+1); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function segment(indices, crossFrac, extra){
+  const order = shuffle([...indices]);
+  const items = order.map(ci => ({ci, t: rnd(8), rep:false, ex:extra}));
+  const dupN = Math.round(indices.length * crossFrac);
+  for(const ci of shuffle([...order]).slice(0,dupN)){
+    const first = items.findIndex(it => it.ci===ci && !it.rep);
+    let t = rnd(8); if(t===items[first].t) t=(t+1)%8;
+    const minPos = Math.min(first+10, items.length);
+    const pos = minPos + rnd(items.length-minPos+1);
+    items.splice(pos, 0, {ci, t, rep:true, ex:extra});
+  }
+  return items;
+}
+function freshSession(tester){
+  const coreIdx = CATALOG.map((e,i)=>e.core?i:-1).filter(i=>i>=0);
+  const extraIdx = CATALOG.map((e,i)=>e.core?-1:i).filter(i=>i>=0);
+  return {
+    tester: tester||'', sessionId: crypto.randomUUID(), createdAt: Date.now(),
+    core: segment(coreIdx,0.28,false), extras: segment(extraIdx,0.15,true),
+    extrasUnlocked:false, results:[],
+  };
+}
+const active = s => s.extrasUnlocked ? s.core.concat(s.extras) : s.core;
+const save = () => localStorage.setItem(LS_KEY, JSON.stringify(SESSION));
+function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return null; } }
+
+// ---- Supabase (best-effort, idempotent via row id; 409 = already stored) ----
+async function postRow(r){
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/study_ratings`, {
+    method:'POST',
+    headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}`,
+      'Content-Type':'application/json', Prefer:'return=minimal' },
+    body: JSON.stringify({
+      id:r.id, session_id:SESSION.sessionId, tester:SESSION.tester||null,
+      catalog_index:r.ci, transform:r.t, is_repeat:r.rep, is_extra:r.ex,
+      rating:r.rating, solved:r.solved, time_ms:r.timeMs, mine_hits:r.mineHits,
+      taps:r.taps, events:r.events, app_version:APP_VERSION,
+    }),
+  });
+  return resp.ok || resp.status === 409;
+}
+async function flush(){
+  if(!SUPABASE_URL || !SESSION) return;
+  for(const r of SESSION.results){
+    if(r.synced) continue;
+    try{ if(await postRow(r)){ r.synced=true; save(); } }catch(e){ /* offline → retry next time */ }
+  }
+}
+
+// ---- state ------------------------------------------------------------------
+let SESSION = null, phase = 'intro';
+let board=null, revealed=null, shownAt=0, exploded=-1, busy=false;
+let taps=0, mineHits=0, events=[], choicesReady=false, solvedTime=0, solvedFlag=false;
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const curItem = () => active(SESSION)[SESSION.cursorPos];
+
+function nextPhase(){
+  const s = SESSION; s.cursorPos = s.results.length;
+  if(s.cursorPos < active(s).length){ beginBoard(); return; }
+  if(!s.extrasUnlocked && s.extras.length){ phase='coreDone'; render(); return; }
+  phase='done'; render();
+}
+function beginBoard(){
+  const it = active(SESSION)[SESSION.cursorPos];
+  board = materialize(CATALOG[it.ci], it.t);
+  revealed = new Set(board.opened);
+  exploded = -1; busy=false; taps=0; mineHits=0; events=[];
+  solvedFlag=false; solvedTime=0; choicesReady=false;
+  shownAt = Date.now();
+  phase='playing'; render();
+}
+
+function floodRings(start){
+  const visited=new Set([start]), rings=[]; let frontier=[start];
+  while(frontier.length){
+    rings.push(frontier); const next=[];
+    for(const c of frontier){
+      if(board.numbers[c]!==0) continue;
+      for(const nb of neighbours(c)) if(!visited.has(nb)&&!revealed.has(nb)){ visited.add(nb); next.push(nb); }
+    }
+    frontier=next;
+  }
+  return rings;
+}
+
+async function onCell(d){
+  if(busy || phase!=='playing' || revealed.has(d)) return;
+  const ms = Date.now()-shownAt;
+  const isMine = board.mines.has(d);
+  taps++;
+  events.push({c: untIndex(d, curItem().t), t: ms, m: isMine?1:0});
+  if(isMine){
+    mineHits++; busy=true; exploded=d; render();
+    await sleep(700);
+    revealed = new Set(board.opened); exploded=-1; busy=false; render();
+    return;
+  }
+  busy=true;
+  const rings = floodRings(d);
+  for(let k=0;k<rings.length;k++){
+    rings[k].forEach(c=>revealed.add(c)); render();
+    if(k+1<rings.length) await sleep(26);
+  }
+  busy=false;
+  if(revealed.size >= board.safeCount) solved();
+}
+function solved(){
+  solvedFlag=true; solvedTime = Date.now()-shownAt; phase='solved'; choicesReady=false; render();
+  setTimeout(()=>{ if(phase==='solved'){ choicesReady=true; render(); } }, 500);
+}
+function giveUp(){ solvedFlag=false; commit(0); }
+function commit(rating){
+  const it = curItem();
+  SESSION.results.push({
+    id: crypto.randomUUID(), ci:it.ci, t:it.t, rep:it.rep, ex:it.ex,
+    rating, solved:solvedFlag, timeMs: solvedFlag?solvedTime:(Date.now()-shownAt),
+    mineHits, taps, events, synced:false,
+  });
+  save(); flush();
+  nextPhase();
+}
+function unlockExtras(yes){
+  if(yes){ SESSION.extrasUnlocked=true; save(); nextPhase(); }
+  else { phase='done'; render(); }
+}
+
+// ---- views ------------------------------------------------------------------
+const MINE_SVG = (col)=>`<svg viewBox="0 0 24 24"><g stroke="${col}" stroke-width="2" stroke-linecap="round">`+
+  [0,1,2,3,4,5,6,7].map(k=>{const a=k*Math.PI/4;return `<line x1="12" y1="12" x2="${(12+Math.cos(a)*9).toFixed(1)}" y2="${(12+Math.sin(a)*9).toFixed(1)}"/>`}).join('')+
+  `</g><circle cx="12" cy="12" r="5" fill="${col}"/></svg>`;
+const NUMCOL=[null,'var(--n1)','var(--n2)','var(--n3)','var(--n4)','var(--n5)','var(--n6)','var(--n7)','var(--n8)'];
+const OPTS=['Kolayca çözdüm','Biraz düşünmem gerekti','Oldukça zordu'];
+
+function boardHTML(){
+  let h='<div class="board" id="board">';
+  for(let i=0;i<N;i++){
+    if(i===exploded){ h+=`<div class="cell mine">${MINE_SVG('#fff')}</div>`; continue; }
+    if(revealed.has(i)){
+      const n=board.numbers[i];
+      h+=`<div class="cell open">${n?`<span style="color:${NUMCOL[n]}">${n}</span>`:''}</div>`;
+    } else {
+      h+=`<div class="cell cov" data-i="${i}"></div>`;
+    }
+  }
+  return h+'</div>';
+}
+function fmtTime(ms){ return (ms/1000).toFixed(1).replace('.', ','); }
+
+function render(){
+  const app = document.getElementById('app'); let h='';
+  if(phase==='intro'){
+    const s = load();
+    const resumable = s && s.results && s.results.length>0 &&
+      s.results.length < (s.extrasUnlocked ? s.core.length+s.extras.length : s.core.length);
+    h += `<div class="eyebrow">kör zorluk testi</div>
+      <h1>Bu mayın tahtalarını değerlendir</h1>
+      <p class="lede">Her tahtayı temizle: güvenli kareleri tıkla; sayılar bir kareye kaç mayının
+      komşu olduğunu söyler. Mayına basarsan tahta sıfırlanır — temizlenene kadar dene, sonra ne
+      kadar zor olduğunu söyle. Süre yok; rahatça oyna.</p>`;
+    if(resumable){
+      const done=s.results.length, tot=(s.extrasUnlocked? s.core.length+s.extras.length : s.core.length);
+      h += `<button class="btn btn-primary" id="resume">Devam et · ${done}/${tot} tamam</button>
+        <button class="link" id="restart">Baştan başla</button>`;
+    } else {
+      h += `<input type="text" id="name" placeholder="Adın veya baş harflerin (isteğe bağlı)">
+        <div style="height:14px"></div>
+        <button class="btn btn-primary" id="start">Başla</button>`;
+    }
+  }
+  else if(phase==='playing'){
+    const tot=active(SESSION).length, done=SESSION.cursorPos;
+    const left=Math.max(0, tot-done-1);
+    h += `<div class="play">
+      <div>
+        <div class="prog-top"><span class="left">${done+1} / ${tot}${SESSION.extrasUnlocked?' · bonus':''}</span>
+        <span class="right">${left} kaldı</span></div>
+        <div class="prog-bar"><div class="prog-fill" style="width:${tot?((done+1)/tot*100):0}%"></div></div>
+      </div>
+      <div class="play-mid">
+        <div class="ptitle">Tahtayı temizle</div>
+        <div class="psub">${board.mineCount} mayın gizli</div>
+        ${boardHTML()}
+      </div>
+      <button class="link" id="giveup">Çok zor — geç</button>
+    </div>`;
+  }
+  else if(phase==='solved'){
+    h += `<div class="center">
+      <div class="bigicon" style="color:var(--good)">✓</div>
+      <div class="time" style="margin-top:10px">${fmtTime(solvedTime)} sn</div>
+      <div style="color:var(--muted); font-size:14px; margin-top:4px">
+        ${taps} dokunuş${mineHits>0?` · ${mineHits} mayın`:''}</div>
+      <div class="fade ${choicesReady?'on':''}" style="margin-top:30px">
+        <div class="q">Ne kadar zordu?</div>
+        ${OPTS.map((o,i)=>`<button class="btn btn-choice" data-r="${i+1}">${o}</button>`).join('')}
+      </div>
+    </div>`;
+  }
+  else if(phase==='coreDone'){
+    h += `<div class="center">
+      <div class="bigicon" style="color:var(--amber)">🔥</div>
+      <h1 style="margin-top:12px">Ana set bitti · ${SESSION.core.length} tahta</h1>
+      <p class="lede">Temel set bu kadar. ${SESSION.extras.length} ekstra tahta daha ister misin?
+      İsteğe bağlı — değerlendirmelerin kaydedildi.</p>
+      <button class="btn btn-primary" id="more">Devam et — ekstra tahtalar</button>
+      <button class="link" id="finish">Bitirdim — sonuçlarımı göster</button>
+    </div>`;
+  }
+  else if(phase==='done'){
+    const solved=SESSION.results.filter(r=>r.solved).length;
+    h += `<div class="center">
+      <div class="bigicon" style="color:var(--good)">✓</div>
+      <h1 style="margin-top:10px">Teşekkürler!</h1>
+      <p class="lede">${SESSION.results.length} tahta değerlendirildi · ${solved} temizlendi.
+      Sonuçların otomatik kaydedildi. İstersen aşağıdan kopyalayıp da gönderebilirsin.</p>
+      <button class="btn btn-primary" id="copy">Sonuçları kopyala</button>
+      <div class="results-box" id="rbox">${escapeHtml(exportJson())}</div>
+    </div>`;
+  }
+  app.innerHTML = h;
+  wire();
+}
+function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function exportJson(){
+  return JSON.stringify({
+    tester: SESSION.tester, sessionId: SESSION.sessionId, createdAt: SESSION.createdAt,
+    app: APP_VERSION,
+    results: SESSION.results.map(r=>({ci:r.ci,t:r.t,rep:r.rep,ex:r.ex,rating:r.rating,
+      solved:r.solved,timeMs:r.timeMs,mineHits:r.mineHits,taps:r.taps,events:r.events})),
+  }, null, 2);
+}
+
+function wire(){
+  const $=id=>document.getElementById(id);
+  if(phase==='intro'){
+    if($('start')) $('start').onclick=()=>{ SESSION=freshSession($('name').value); save(); SESSION.cursorPos=0; nextPhase(); };
+    if($('resume')) $('resume').onclick=()=>{ SESSION=load(); SESSION.cursorPos=SESSION.results.length; flush(); nextPhase(); };
+    if($('restart')) $('restart').onclick=()=>{ localStorage.removeItem(LS_KEY); render(); };
+  }
+  else if(phase==='playing'){
+    const b=$('board'); if(b) b.onclick=e=>{ const c=e.target.closest('.cov'); if(c) onCell(+c.dataset.i); };
+    $('giveup').onclick=giveUp;
+  }
+  else if(phase==='solved'){
+    document.querySelectorAll('[data-r]').forEach(btn=> btn.onclick=()=>commit(+btn.dataset.r));
+  }
+  else if(phase==='coreDone'){
+    $('more').onclick=()=>unlockExtras(true);
+    $('finish').onclick=()=>unlockExtras(false);
+  }
+  else if(phase==='done'){
+    $('copy').onclick=async()=>{
+      try{ await navigator.clipboard.writeText(exportJson()); toast('Sonuçlar kopyalandı'); }
+      catch(e){ const r=$('rbox'); const sel=window.getSelection(); sel.removeAllRanges();
+        const range=document.createRange(); range.selectNodeContents(r); sel.addRange(range);
+        toast('Kutudaki metni seçip kopyala'); }
+    };
+  }
+}
+let toastT;
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),2200); }
+
+// ---- boot -------------------------------------------------------------------
+SESSION = load();  // load any prior session so leftover unsynced rows can retry
+render();          // intro re-reads storage itself to decide resume vs. fresh
+flush();
+</script>
+</body>
+</html>
