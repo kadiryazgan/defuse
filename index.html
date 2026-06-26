@@ -60,6 +60,10 @@
   .cell.open{background:var(--opened);}
   .cell.mine{background:var(--mine);}
   .cell svg{width:64%; height:64%;}
+  /* tutorial example pair (closed view + revealed view) */
+  .expair{display:flex; gap:18px; justify-content:center; align-items:flex-start; flex-wrap:wrap;}
+  .board.exb{width:132px; gap:4px; padding:4px; border-radius:10px;}
+  .exb .cell{font-size:15px; border-radius:7px;}
 
   .center{text-align:center;}
   .time{font-size:44px; font-weight:800; color:var(--amber);}
@@ -141,7 +145,8 @@ function freshSession(tester){
   const coreIdx = CATALOG.map((e,i)=>e.core?i:-1).filter(i=>i>=0);
   const extraIdx = CATALOG.map((e,i)=>e.core?-1:i).filter(i=>i>=0);
   return {
-    tester: tester||'', sessionId: crypto.randomUUID(), createdAt: Date.now(),
+    tester: tester||'', experience: pendingExp, sessionId: crypto.randomUUID(),
+    createdAt: Date.now(),
     core: segment(coreIdx,0.28,false), extras: segment(extraIdx,0.15,true),
     extrasUnlocked:false, results:[],
   };
@@ -158,6 +163,7 @@ async function postRow(r){
       'Content-Type':'application/json', Prefer:'return=minimal' },
     body: JSON.stringify({
       id:r.id, session_id:SESSION.sessionId, tester:SESSION.tester||null,
+      experience:SESSION.experience||null,
       catalog_index:r.ci, transform:r.t, is_repeat:r.rep, is_extra:r.ex,
       rating:r.rating, solved:r.solved, time_ms:r.timeMs, mine_hits:r.mineHits,
       taps:r.taps, events:r.events, app_version:APP_VERSION,
@@ -175,10 +181,15 @@ async function flush(){
 
 // ---- state ------------------------------------------------------------------
 let SESSION = null, phase = 'intro';
-let board=null, revealed=null, shownAt=0, exploded=-1, busy=false;
+let board=null, revealed=null, shownAt=0, exploded=-1, busy=false, curT=0;
 let taps=0, mineHits=0, events=[], choicesReady=false, solvedTime=0, solvedFlag=false;
+let pendingName='', pendingExp=null; // collected before the session is created
+let tutStep=0; // which annotated example is showing
+let mineHit=false; // holding the "Mayına bastın!" banner until the player retries
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 const curItem = () => active(SESSION)[SESSION.cursorPos];
+// A fixed easy board for the tutorial practice (deterministic).
+const TUT = CATALOG.find(e=>e.core && e.tier===0 && e.toClear<=3) || CATALOG[0];
 
 function nextPhase(){
   const s = SESSION; s.cursorPos = s.results.length;
@@ -186,14 +197,26 @@ function nextPhase(){
   if(!s.extrasUnlocked && s.extras.length){ phase='coreDone'; render(); return; }
   phase='done'; render();
 }
+function resetBoardRuntime(){
+  revealed = new Set(board.opened);
+  exploded=-1; busy=false; taps=0; mineHits=0; events=[]; mineHit=false;
+  solvedFlag=false; solvedTime=0; choicesReady=false; shownAt=Date.now();
+}
 function beginBoard(){
   const it = active(SESSION)[SESSION.cursorPos];
+  curT = it.t;
   board = materialize(CATALOG[it.ci], it.t);
-  revealed = new Set(board.opened);
-  exploded = -1; busy=false; taps=0; mineHits=0; events=[];
-  solvedFlag=false; solvedTime=0; choicesReady=false;
-  shownAt = Date.now();
+  resetBoardRuntime();
   phase='playing'; render();
+}
+function beginTutorial(){
+  curT = 0;
+  board = materialize(TUT, 0);
+  resetBoardRuntime();
+  phase='tutPlay'; render();
+}
+function retryBoard(){
+  revealed = new Set(board.opened); exploded=-1; busy=false; mineHit=false; render();
 }
 
 function floodRings(start){
@@ -210,15 +233,14 @@ function floodRings(start){
 }
 
 async function onCell(d){
-  if(busy || phase!=='playing' || revealed.has(d)) return;
+  if(busy || (phase!=='playing' && phase!=='tutPlay') || revealed.has(d)) return;
   const ms = Date.now()-shownAt;
   const isMine = board.mines.has(d);
   taps++;
-  events.push({c: untIndex(d, curItem().t), t: ms, m: isMine?1:0});
+  events.push({c: untIndex(d, curT), t: ms, m: isMine?1:0});
   if(isMine){
-    mineHits++; busy=true; exploded=d; render();
-    await sleep(700);
-    revealed = new Set(board.opened); exploded=-1; busy=false; render();
+    // Hold on the explosion until the player taps "Tekrar dene" — no auto-reset.
+    mineHits++; busy=true; exploded=d; mineHit=true; render();
     return;
   }
   busy=true;
@@ -231,7 +253,9 @@ async function onCell(d){
   if(revealed.size >= board.safeCount) solved();
 }
 function solved(){
-  solvedFlag=true; solvedTime = Date.now()-shownAt; phase='solved'; choicesReady=false; render();
+  solvedTime = Date.now()-shownAt;
+  if(phase==='tutPlay'){ phase='tutDone'; render(); return; }
+  solvedFlag=true; phase='solved'; choicesReady=false; render();
   setTimeout(()=>{ if(phase==='solved'){ choicesReady=true; render(); } }, 500);
 }
 function giveUp(){ solvedFlag=false; commit(0); }
@@ -271,6 +295,68 @@ function boardHTML(){
   return h+'</div>';
 }
 function fmtTime(ms){ return (ms/1000).toFixed(1).replace('.', ','); }
+const mineBanner = () => mineHit ? `<div style="margin-top:20px;text-align:center">
+    <div style="color:var(--mine);font-weight:800;font-size:17px;margin-bottom:12px">💥 Mayına bastın!</div>
+    <button class="btn btn-primary" id="retry" style="max-width:220px">Tekrar dene</button>
+  </div>` : '';
+function tutLegend(){
+  const cell=(cls,inner)=>`<div class="cell ${cls}" style="width:46px;height:46px;aspect-ratio:auto;font-size:22px">${inner}</div>`;
+  const item=(c,l)=>`<div style="display:flex;flex-direction:column;align-items:center;gap:7px">${c}<span style="color:var(--muted);font-size:11px">${l}</span></div>`;
+  return `<div style="display:flex;justify-content:center;gap:24px;margin:6px 0 20px">
+    ${item(cell('cov',''),'kapalı')}
+    ${item(cell('open','<span style="color:var(--n1)">1</span>'),'1 mayın komşu')}
+    ${item(cell('mine',MINE_SVG('#fff')),'mayın')}
+  </div>`;
+}
+// Build an example layout from just its mine positions (numbers + opening flood
+// computed the same way the real generator does).
+function buildEx(mines){
+  const ms=new Set(mines), nums=new Array(N).fill(0);
+  for(let i=0;i<N;i++){ if(ms.has(i))continue; nums[i]=neighbours(i).filter(n=>ms.has(n)).length; }
+  let best=new Set(), seen=new Set();
+  for(let i=0;i<N;i++){
+    if(ms.has(i)||nums[i]!==0||seen.has(i))continue;
+    const reg=new Set(), st=[i];
+    while(st.length){ const x=st.pop(); if(reg.has(x))continue; reg.add(x);
+      if(nums[x]===0) for(const nb of neighbours(x)) if(!reg.has(nb)) st.push(nb); }
+    reg.forEach(c=>seen.add(c));
+    if(reg.size>best.size) best=reg;
+  }
+  return {mines, numbers:nums, opened:[...best], mineCount:mines.length, toClear:N-mines.length-best.size};
+}
+// Annotated examples — layouts shown two ways: the closed view a player sees
+// (OYUNDA) and the revealed view with the mines (MAYINLAR).
+const _ez = CATALOG.filter(x=>x.core && x.tier===0);
+const EXAMPLES = [
+  { e: _ez.find(x=>x.toClear<=3) || _ez[0],
+    title:'Aynı tahta, iki görünüm',
+    body:'Solda oyunda gördüğün hâli — bazı kareler kapalı. Sağda altındaki mayınlar. Açık sayılar mayınların yerini ele verir; sen <b>mayına basmadan</b> kapalı (yeşil) güvenli kareleri açarsın.' },
+  { e: _ez.find(x=>x.toClear>=4) || _ez[1] || _ez[0],
+    title:'Sayıları oku, güvenliyi bul',
+    body:'Bir karedeki sayı, ona komşu mayın adedidir. Bu ipuçlarını birleştirip hangi kapalı karelerin güvenli olduğunu çözer, sadece onlara dokunursun.' },
+  { e: buildEx([4,5,6]),
+    title:'Bitişik mayınlar büyük sayı yapar',
+    body:'Mayınlar yan yana olunca komşu kareler daha büyük sayılar gösterir — ortadaki “3”, ona değen üç mayını birden sayıyor. Yine hepsine basmadan güvenli kareleri açarsın.' },
+];
+function exBoard(e, revealed){
+  const ms=new Set(e.mines), op=new Set(e.opened);
+  let h='<div class="board exb">';
+  for(let i=0;i<N;i++){
+    if(revealed){
+      if(ms.has(i)){ h+=`<div class="cell mine">${MINE_SVG('#fff')}</div>`; continue; }
+      const n=e.numbers[i], ring = op.has(i)?'':'box-shadow:0 0 0 3px var(--good) inset;';
+      h+=`<div class="cell open" style="${ring}">${n?`<span style="color:${NUMCOL[n]}">${n}</span>`:''}</div>`;
+    } else {
+      if(op.has(i)){ const n=e.numbers[i]; h+=`<div class="cell open">${n?`<span style="color:${NUMCOL[n]}">${n}</span>`:''}</div>`; }
+      else h+=`<div class="cell cov"></div>`;
+    }
+  }
+  return h+'</div>';
+}
+function exampleHTML(ex){
+  const panel=(lbl,inner)=>`<div style="text-align:center"><div style="color:var(--muted);font-size:11px;font-weight:800;letter-spacing:1.5px;margin-bottom:8px">${lbl}</div>${inner}</div>`;
+  return `<div class="expair">${panel('OYUNDA', exBoard(ex.e,false))}${panel('MAYINLAR', exBoard(ex.e,true))}</div>`;
+}
 
 function render(){
   const app = document.getElementById('app'); let h='';
@@ -293,6 +379,52 @@ function render(){
         <button class="btn btn-primary" id="start">Başla</button>`;
     }
   }
+  else if(phase==='experience'){
+    h += `<div class="eyebrow">kısa soru</div>
+      <h1>Daha önce Mayın Tarlası oynadın mı?</h1>
+      <p class="lede">Sadece veriyi gruplamak için — doğru ya da yanlış cevap yok.</p>
+      <button class="btn btn-choice" data-x="none">Hiç oynamadım</button>
+      <button class="btn btn-choice" data-x="some">Biraz oynadım</button>
+      <button class="btn btn-choice" data-x="lots">Çok oynadım</button>`;
+  }
+  else if(phase==='tutInfo'){
+    h += `<div class="eyebrow">nasıl oynanır</div>
+      <h1>Mayınlara basmadan tahtayı temizle</h1>
+      ${tutLegend()}
+      <p class="lede">
+      <b>Sayılar</b> ipucudur: bir karedeki sayı, ona komşu 8 karede kaç <b>mayın</b> olduğunu söyler.<br><br>
+      Bu ipuçlarıyla <b>mayına basmadan</b> tüm güvenli kareleri aç.<br><br>
+      <b>Mayına</b> basarsan tahta sıfırlanır; tekrar denersin. Süre yok.</p>
+      <button class="btn btn-primary" id="tryit">Örneklere bak</button>`;
+  }
+  else if(phase==='tutEx'){
+    const ex=EXAMPLES[tutStep], last=tutStep===EXAMPLES.length-1;
+    h += `<div class="eyebrow">örnek ${tutStep+1} / ${EXAMPLES.length}</div>
+      <h1 style="font-size:24px">${ex.title}</h1>
+      <div style="display:flex;justify-content:center;margin:16px 0">${exampleHTML(ex)}</div>
+      <p class="lede">${ex.body}</p>
+      <button class="btn btn-primary" id="exnext">${last?'Şimdi sen dene':'İleri'}</button>`;
+  }
+  else if(phase==='tutPlay'){
+    h += `<div class="play">
+      <div class="center" style="margin-bottom:6px">
+        <span style="color:var(--amber);font-weight:800;font-size:13px;letter-spacing:1.5px">ALIŞTIRMA</span></div>
+      <div class="play-mid">
+        <div class="ptitle">Tüm güvenli kareleri aç</div>
+        <div class="psub">${board.mineCount} mayın gizli</div>
+        ${boardHTML()}
+        ${mineBanner()}
+      </div>
+    </div>`;
+  }
+  else if(phase==='tutDone'){
+    h += `<div class="center">
+      <div class="bigicon" style="color:var(--good)">✓</div>
+      <h1 style="margin-top:10px">Harika, anladın!</h1>
+      <p class="lede">Şimdi sıra gerçek testte. Her tahtayı çöz, sonra ne kadar zor olduğunu söyle.</p>
+      <button class="btn btn-primary" id="begin">Teste başla</button>
+    </div>`;
+  }
   else if(phase==='playing'){
     const tot=active(SESSION).length, done=SESSION.cursorPos;
     const left=Math.max(0, tot-done-1);
@@ -306,6 +438,7 @@ function render(){
         <div class="ptitle">Tahtayı temizle</div>
         <div class="psub">${board.mineCount} mayın gizli</div>
         ${boardHTML()}
+        ${mineBanner()}
       </div>
       <button class="link" id="giveup">Çok zor — geç</button>
     </div>`;
@@ -349,8 +482,8 @@ function render(){
 function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function exportJson(){
   return JSON.stringify({
-    tester: SESSION.tester, sessionId: SESSION.sessionId, createdAt: SESSION.createdAt,
-    app: APP_VERSION,
+    tester: SESSION.tester, experience: SESSION.experience,
+    sessionId: SESSION.sessionId, createdAt: SESSION.createdAt, app: APP_VERSION,
     results: SESSION.results.map(r=>({ci:r.ci,t:r.t,rep:r.rep,ex:r.ex,rating:r.rating,
       solved:r.solved,timeMs:r.timeMs,mineHits:r.mineHits,taps:r.taps,events:r.events})),
   }, null, 2);
@@ -359,12 +492,27 @@ function exportJson(){
 function wire(){
   const $=id=>document.getElementById(id);
   if(phase==='intro'){
-    if($('start')) $('start').onclick=()=>{ SESSION=freshSession($('name').value); save(); SESSION.cursorPos=0; nextPhase(); };
+    if($('start')) $('start').onclick=()=>{ pendingName=$('name').value; phase='experience'; render(); };
     if($('resume')) $('resume').onclick=()=>{ SESSION=load(); SESSION.cursorPos=SESSION.results.length; flush(); nextPhase(); };
     if($('restart')) $('restart').onclick=()=>{ localStorage.removeItem(LS_KEY); render(); };
   }
+  else if(phase==='experience'){
+    document.querySelectorAll('[data-x]').forEach(b=> b.onclick=()=>{ pendingExp=b.dataset.x; phase='tutInfo'; render(); });
+  }
+  else if(phase==='tutInfo'){ $('tryit').onclick=()=>{ tutStep=0; phase='tutEx'; render(); }; }
+  else if(phase==='tutEx'){
+    $('exnext').onclick=()=>{ if(tutStep<EXAMPLES.length-1){ tutStep++; render(); } else beginTutorial(); };
+  }
+  else if(phase==='tutPlay'){
+    const b=$('board'); if(b) b.onclick=e=>{ const c=e.target.closest('.cov'); if(c) onCell(+c.dataset.i); };
+    if($('retry')) $('retry').onclick=retryBoard;
+  }
+  else if(phase==='tutDone'){
+    $('begin').onclick=()=>{ SESSION=freshSession(pendingName); save(); nextPhase(); };
+  }
   else if(phase==='playing'){
     const b=$('board'); if(b) b.onclick=e=>{ const c=e.target.closest('.cov'); if(c) onCell(+c.dataset.i); };
+    if($('retry')) $('retry').onclick=retryBoard;
     $('giveup').onclick=giveUp;
   }
   else if(phase==='solved'){
