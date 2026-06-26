@@ -154,7 +154,7 @@ function freshSession(tester){
     tester: tester||'', experience: pendingExp, sessionId: crypto.randomUUID(),
     createdAt: Date.now(),
     core: segment(coreIdx,0.28,false), extras: segment(extraIdx,0.15,true),
-    extrasUnlocked:false, results:[],
+    extrasUnlocked:false, results:[], score:0,
   };
 }
 const active = s => s.extrasUnlocked ? s.core.concat(s.extras) : s.core;
@@ -188,7 +188,7 @@ async function flush(){
 // ---- state ------------------------------------------------------------------
 let SESSION = null, phase = 'intro';
 let board=null, revealed=null, shownAt=0, exploded=-1, busy=false, curT=0;
-let taps=0, mineHits=0, events=[], choicesReady=false, solvedTime=0, solvedFlag=false;
+let taps=0, mineHits=0, events=[], choicesReady=false, solvedTime=0, solvedFlag=false, lastEarned=0;
 let pendingName='', pendingExp=null; // collected before the session is created
 let tutStep=0; // which annotated example is showing
 let mineHit=false; // holding the "Mayına bastın!" banner until the player retries
@@ -246,7 +246,9 @@ async function onCell(d){
   events.push({c: untIndex(d, curT), t: ms, m: isMine?1:0});
   if(isMine){
     // Hold on the explosion until the player taps "Tekrar dene" — no auto-reset.
-    mineHits++; busy=true; exploded=d; mineHit=true; render();
+    mineHits++; busy=true; exploded=d; mineHit=true;
+    if(phase==='playing'){ SESSION.score=(SESSION.score||0)-5; save(); }  // -5 per mine step
+    render();
     return;
   }
   busy=true;
@@ -283,6 +285,8 @@ function initSwipe(){
 function solved(){
   solvedTime = Date.now()-shownAt;
   if(phase==='tutPlay'){ phase='tutDone'; render(); return; }
+  lastEarned = board.mineCount*10;                       // clear bonus = mines × 10
+  SESSION.score=(SESSION.score||0)+lastEarned; save();
   solvedFlag=true; phase='solved'; choicesReady=false; render();
   setTimeout(()=>{ if(phase==='solved'){ choicesReady=true; render(); } }, 500);
 }
@@ -458,7 +462,7 @@ function render(){
     h += `<div class="play">
       <div>
         <div class="prog-top"><span class="left">${done+1} / ${tot}${SESSION.extrasUnlocked?' · bonus':''}</span>
-        <span class="right">${left} kaldı</span></div>
+        <span class="right">⭐ ${SESSION.score||0} · ${left} kaldı</span></div>
         <div class="prog-bar"><div class="prog-fill" style="width:${tot?((done+1)/tot*100):0}%"></div></div>
       </div>
       <div class="play-mid">
@@ -473,9 +477,10 @@ function render(){
   else if(phase==='solved'){
     h += `<div class="center">
       <div class="bigicon" style="color:var(--good)">✓</div>
-      <div class="time" style="margin-top:10px">${fmtTime(solvedTime)} sn</div>
+      <div style="color:var(--amber);font-weight:800;font-size:26px;margin-top:8px">+${lastEarned} ⭐</div>
+      <div class="time" style="margin-top:6px">${fmtTime(solvedTime)} sn</div>
       <div style="color:var(--muted); font-size:14px; margin-top:4px">
-        ${taps} dokunuş${mineHits>0?` · ${mineHits} mayın`:''}</div>
+        ${taps} dokunuş${mineHits>0?` · ${mineHits} mayın (−${mineHits*5} ⭐)`:''} · toplam ${SESSION.score||0} ⭐</div>
       <div class="fade ${choicesReady?'on':''}" style="margin-top:30px">
         <button class="btn btn-primary" id="cont">Devam</button>
       </div>
@@ -496,6 +501,7 @@ function render(){
     h += `<div class="center">
       <div class="bigicon" style="color:var(--good)">✓</div>
       <h1 style="margin-top:10px">Teşekkürler!</h1>
+      <div style="color:var(--amber);font-weight:800;font-size:30px;margin:6px 0">${SESSION.score||0} ⭐</div>
       <p class="lede">${SESSION.results.length} tahta değerlendirildi · ${solved} temizlendi.
       Sonuçların otomatik kaydedildi. İstersen aşağıdan kopyalayıp da gönderebilirsin.</p>
       <button class="btn btn-primary" id="copy">Sonuçları kopyala</button>
