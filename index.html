@@ -89,8 +89,8 @@
 // ---- config (publishable anon key — RLS limits it to INSERT only) -----------
 const SUPABASE_URL = 'https://mppsuzrsdyecfbfudajp.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_yKP_3cRMhAwWxw8YAgvnjA_93YY8qj_';
-const APP_VERSION = 'study-web/v3'; // v3: curated playlist (80 boards, score<50, curated order)
-const LS_KEY = 'defuseStudy.v3';   // bumped so old v2 in-progress sessions don't resume
+const APP_VERSION = 'study-web/v4'; // v4: curated playlist (78 boards, score<50) after run-4 re-tune
+const LS_KEY = 'defuseStudy.v4';   // bumped so older in-progress sessions don't resume
 const SIDE = 4, N = 16;
 
 // ---- catalog (106 fair layouts; core = shipped by the live game) ------------
@@ -127,9 +127,9 @@ function materialize(e, t){
 }
 
 // ---- curated playlist -------------------------------------------------------
-// The 80 boards we ship (curated score < 50), in curated order: ascending score.
+// The 78 boards we ship (curated score < 50), in curated order: ascending score.
 // {ci} indexes CATALOG; {sc} is the curated score (for reference only).
-const CURATED = [{ci:1,sc:16},{ci:35,sc:16},{ci:36,sc:16},{ci:42,sc:16},{ci:63,sc:16},{ci:0,sc:18},{ci:4,sc:18},{ci:30,sc:18},{ci:31,sc:18},{ci:32,sc:18},{ci:64,sc:18},{ci:71,sc:18},{ci:83,sc:18},{ci:86,sc:18},{ci:3,sc:25},{ci:5,sc:25},{ci:19,sc:25},{ci:37,sc:25},{ci:38,sc:25},{ci:41,sc:25},{ci:52,sc:25},{ci:68,sc:25},{ci:88,sc:25},{ci:2,sc:30},{ci:33,sc:30},{ci:34,sc:30},{ci:43,sc:30},{ci:44,sc:30},{ci:65,sc:30},{ci:67,sc:30},{ci:85,sc:30},{ci:98,sc:30},{ci:9,sc:35},{ci:14,sc:35},{ci:15,sc:35},{ci:20,sc:35},{ci:40,sc:35},{ci:45,sc:35},{ci:47,sc:35},{ci:50,sc:35},{ci:51,sc:35},{ci:56,sc:35},{ci:60,sc:35},{ci:61,sc:35},{ci:70,sc:35},{ci:89,sc:35},{ci:11,sc:37},{ci:13,sc:37},{ci:16,sc:37},{ci:57,sc:37},{ci:62,sc:37},{ci:66,sc:37},{ci:76,sc:37},{ci:84,sc:37},{ci:91,sc:37},{ci:95,sc:37},{ci:12,sc:40},{ci:25,sc:40},{ci:46,sc:40},{ci:53,sc:40},{ci:54,sc:40},{ci:72,sc:40},{ci:75,sc:40},{ci:92,sc:40},{ci:94,sc:40},{ci:96,sc:40},{ci:7,sc:45},{ci:8,sc:45},{ci:23,sc:45},{ci:26,sc:45},{ci:55,sc:45},{ci:58,sc:45},{ci:59,sc:45},{ci:73,sc:45},{ci:80,sc:45},{ci:82,sc:45},{ci:90,sc:45},{ci:93,sc:45},{ci:97,sc:45},{ci:104,sc:45}];
+const CURATED = [{ci:1,sc:16},{ci:35,sc:16},{ci:36,sc:16},{ci:42,sc:16},{ci:63,sc:16},{ci:0,sc:18},{ci:4,sc:18},{ci:30,sc:18},{ci:31,sc:18},{ci:32,sc:18},{ci:64,sc:18},{ci:71,sc:18},{ci:83,sc:18},{ci:86,sc:18},{ci:3,sc:25},{ci:5,sc:25},{ci:19,sc:25},{ci:37,sc:25},{ci:38,sc:25},{ci:41,sc:25},{ci:52,sc:25},{ci:68,sc:25},{ci:88,sc:25},{ci:2,sc:30},{ci:33,sc:30},{ci:34,sc:30},{ci:43,sc:30},{ci:44,sc:30},{ci:65,sc:30},{ci:67,sc:30},{ci:85,sc:30},{ci:9,sc:35},{ci:14,sc:35},{ci:15,sc:35},{ci:20,sc:35},{ci:40,sc:35},{ci:45,sc:35},{ci:47,sc:35},{ci:51,sc:35},{ci:56,sc:35},{ci:60,sc:35},{ci:61,sc:35},{ci:70,sc:35},{ci:89,sc:35},{ci:11,sc:37},{ci:13,sc:37},{ci:16,sc:37},{ci:62,sc:37},{ci:66,sc:37},{ci:76,sc:37},{ci:84,sc:37},{ci:91,sc:37},{ci:95,sc:37},{ci:12,sc:40},{ci:25,sc:40},{ci:46,sc:40},{ci:53,sc:40},{ci:54,sc:40},{ci:72,sc:40},{ci:75,sc:40},{ci:92,sc:40},{ci:94,sc:40},{ci:96,sc:40},{ci:7,sc:45},{ci:8,sc:45},{ci:23,sc:45},{ci:26,sc:45},{ci:50,sc:45},{ci:55,sc:45},{ci:58,sc:45},{ci:59,sc:45},{ci:73,sc:45},{ci:80,sc:45},{ci:82,sc:45},{ci:90,sc:45},{ci:93,sc:45},{ci:97,sc:45},{ci:104,sc:45}];
 
 // ---- session / playlist -----------------------------------------------------
 const rnd = n => Math.floor(Math.random()*n);
